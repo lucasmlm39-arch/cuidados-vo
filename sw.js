@@ -3,7 +3,7 @@
 const CACHE = "cuidados-v1";
 const ARQUIVOS = [
   "./", "./index.html", "./app.js", "./store.js", "./config.js", "./styles.css",
-  "./manifest.webmanifest", "./icons/icon-192.png", "./icons/apple-touch-icon.png",
+  "./manifest.webmanifest", "./icon-192.png", "./apple-touch-icon.png",
 ];
 
 self.addEventListener("install", (e) => {
