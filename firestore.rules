@@ -1,0 +1,40 @@
+rules_version = '2';
+// Regras de segurança: só quem digitou o código da família consegue ver ou mudar os dados.
+// Cole este conteúdo em: Firebase Console > Firestore Database > Regras > Publicar.
+service cloud.firestore {
+  match /databases/{db}/documents {
+
+    function logado() { return request.auth != null; }
+    function membro() {
+      return logado() && exists(/databases/$(db)/documents/membros/$(request.auth.uid));
+    }
+    function codigoCerto() {
+      return request.resource.data.codigo == get(/databases/$(db)/documents/config/familia).data.codigo;
+    }
+
+    // O código da família fica aqui e ninguém consegue ler pelo app.
+    match /config/{doc} { allow read, write: if false; }
+
+    // Cada aparelho vira "membro" ao digitar o código certo.
+    match /membros/{uid} {
+      allow read: if membro();
+      allow create, update: if logado() && request.auth.uid == uid && codigoCerto();
+      allow delete: if false;
+    }
+
+    match /escala/{id}   { allow read, write: if membro(); }
+    match /remedios/{id} { allow read, write: if membro(); }
+
+    // Uma dose registrada não pode ser sobrescrita: evita duas pessoas
+    // marcarem o mesmo remédio (e a vó tomar em dobro).
+    match /doses/{id} {
+      allow read, create, delete: if membro();
+      allow update: if false;
+    }
+
+    match /recados/{id} {
+      allow read, create: if membro();
+      allow delete: if membro() && resource.data.uid == request.auth.uid;
+    }
+  }
+}
