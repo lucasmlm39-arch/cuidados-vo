@@ -82,7 +82,7 @@ function telaEntrada(erro = "") {
     const f = new FormData(e.target);
     e.target.querySelector("button").disabled = true;
     try {
-      perfil = await store.entrar(String(f.get("nome")).trim(), String(f.get("codigo") || "").trim());
+      perfil = await store.entrar(String(f.get("nome")).trim(), String(f.get("codigo") || "").trim().toLowerCase().replace(/\s+/g, "").replace(/[–—]/g, "-"));
       $("#app").innerHTML = "";
       ligar();
     } catch (err) {
