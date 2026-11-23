@@ -36,5 +36,30 @@ service cloud.firestore {
       allow read, create: if membro();
       allow delete: if membro() && resource.data.uid == request.auth.uid;
     }
+
+    // Chave pessoal da presença automática (só o próprio aparelho lê).
+    match /chaves/{uid} {
+      allow read, write: if membro() && request.auth.uid == uid;
+    }
+
+    // Presença: gravada pela automação do celular (Atalhos / MacroDroid),
+    // sem login, mas só com a chave pessoal correta.
+    match /presenca/{uid} {
+      allow read: if membro();
+      allow create, update: if
+        request.resource.data.keys().hasOnly(['token', 'estado', 'chegouEm', 'saiuEm'])
+        && request.resource.data.estado in ['chegou', 'saiu']
+        && exists(/databases/$(db)/documents/chaves/$(uid))
+        && request.resource.data.token == get(/databases/$(db)/documents/chaves/$(uid)).data.token;
+      allow delete: if membro() && request.auth.uid == uid;
+    }
+
+    // Aparelhos que recebem avisos (cada um cuida do seu).
+    match /aparelhos/{uid} {
+      allow read, write: if membro() && request.auth.uid == uid;
+    }
+
+    // Controle interno do vigia (só o vigia, que usa acesso de administrador).
+    match /enviados/{id} { allow read, write: if false; }
   }
 }
