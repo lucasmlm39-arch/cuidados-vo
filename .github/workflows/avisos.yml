@@ -1,0 +1,47 @@
+name: Vigia de avisos
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"   # a cada 10 minutos (o GitHub pode atrasar alguns minutos)
+  workflow_dispatch:          # permite rodar na mão pela aba Actions
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vigia
+  cancel-in-progress: false
+
+jobs:
+  vigia:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar
+        working-directory: vigia
+        run: npm install --no-audit --no-fund --loglevel=error
+
+      - name: Verificar e enviar avisos
+        working-directory: vigia
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: node index.js
+
+      # O GitHub desliga agendamentos de repositórios parados há 60 dias.
+      # Isto faz um registro vazio a cada ~45 dias para o vigia continuar ligado.
+      - name: Manter o vigia ligado
+        run: |
+          ultimo=$(git log -1 --format=%ct)
+          agora=$(date +%s)
+          if [ $((agora - ultimo)) -gt $((45*24*3600)) ]; then
+            git config user.name "vigia"
+            git config user.email "vigia@users.noreply.github.com"
+            git commit --allow-empty -m "Mantém o vigia ligado"
+            git push
+          fi
