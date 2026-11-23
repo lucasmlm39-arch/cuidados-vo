@@ -24,4 +24,11 @@ window.APP_CONFIG = {
     messagingSenderId: "226388761525",
     appId: "1:226388761525:web:bf6f053bd736cd223217fc",
   },
+
+  // Chave pública de avisos (Firebase > Configurações do projeto > Cloud Messaging >
+  // Certificados push da Web). Enquanto estiver vazia, o botão "Ativar avisos" não funciona.
+  vapidKey: "BH1RnkNV7Yn1NjBHD_XNUBZ-4RoP-OG_yyP3HuZzL2MswdG3Gv4m3k5a_djFxhBQ_fVKjgVCNlkUYgd10I3Sx2E",
+
+  // Endereço do app publicado (usado nos avisos para abrir o app ao tocar)
+  appUrl: "https://lucasmlm39-arch.github.io/cuidados-vo/",
 };
