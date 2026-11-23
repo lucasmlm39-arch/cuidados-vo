@@ -1,6 +1,6 @@
 // Service worker: deixa o app abrir mesmo sem internet.
 // Arquivos do app: tenta a rede primeiro (para pegar atualizações) e usa o cache se estiver offline.
-const CACHE = "cuidados-v1";
+const CACHE = "cuidados-v3";
 const ARQUIVOS = [
   "./", "./index.html", "./app.js", "./store.js", "./config.js", "./styles.css",
   "./manifest.webmanifest", "./icon-192.png", "./apple-touch-icon.png",
@@ -14,6 +14,30 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))));
   self.clients.claim();
+});
+
+// ---------- Avisos (notificações enviadas pelo vigia) ----------
+self.addEventListener("push", (e) => {
+  let p = {};
+  try { p = e.data ? e.data.json() : {}; } catch { p = { notification: { body: e.data && e.data.text() } }; }
+  const n = p.notification || p.data || {};
+  const titulo = n.title || "Cuidados da Vó";
+  e.waitUntil(self.registration.showNotification(titulo, {
+    body: n.body || "",
+    icon: "./icon-192.png",
+    badge: "./icon-192.png",
+    tag: n.tag || undefined,
+    data: { url: (p.data && p.data.url) || "./" },
+  }));
+});
+
+self.addEventListener("notificationclick", (e) => {
+  e.notification.close();
+  e.waitUntil((async () => {
+    const abertas = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
+    for (const c of abertas) { if ("focus" in c) return c.focus(); }
+    return self.clients.openWindow(e.notification.data?.url || "./");
+  })());
 });
 
 self.addEventListener("fetch", (e) => {
