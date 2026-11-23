@@ -149,6 +149,24 @@ main { max-width: 640px; margin: 0 auto; padding: 8px 16px calc(96px + env(safe-
 .recado-topo { display: flex; align-items: center; gap: 8px; }
 .recado-topo .btn-icone { margin-left: auto; font-size: 16px; min-height: 36px; }
 
+/* Presença e tutoriais */
+.faixa-avisos { margin-top: 12px; }
+.presenca { border-left: 6px solid var(--primaria); }
+.presenca .selo, .pessoa-info .selo { margin-left: 4px; }
+.copiar { margin: 12px 0; }
+.copiar-topo { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.copiar-topo .btn { min-height: 40px; padding: 6px 14px; }
+pre.dado {
+  margin: 0; white-space: pre-wrap; word-break: break-all; font-size: 12px; line-height: 1.4;
+  background: var(--fundo); border: 1px solid var(--borda); border-radius: 10px; padding: 10px; max-height: 96px; overflow: auto;
+}
+.tutorial summary { font-size: 17px; cursor: pointer; padding: 4px 0; }
+.tutorial h3 { font-size: 16px; margin: 18px 0 6px; }
+.passos { padding-left: 22px; margin: 6px 0; }
+.passos li { margin-bottom: 10px; }
+.tutorial code, .passos code { background: var(--fundo); border: 1px solid var(--borda); border-radius: 6px; padding: 1px 5px; font-size: 14px; }
+.tutorial a { color: var(--primaria); font-weight: 600; }
+
 /* Formulários e modal */
 .form { display: flex; flex-direction: column; gap: 14px; }
 .form label, .rotulo { display: flex; flex-direction: column; gap: 6px; font-weight: 600; font-size: 15px; }
