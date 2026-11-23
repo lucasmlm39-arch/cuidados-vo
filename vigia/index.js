@@ -152,8 +152,8 @@ async function main() {
       corpo: `${e.nome} estava na escala a partir das ${e.inicio} e ainda não chegou na casa da ${VO}.` });
   }
 
-  // ---------- 3. Escala de amanhã com buracos (enviado a partir das 20h) ----------
-  if (hmAgora >= "20:00") {
+  // ---------- 3. Escala de amanhã com buracos (enviado a partir das 18:30) ----------
+  if (hmAgora >= "18:30") {
     const problemas = [];
     for (const t of TURNOS) {
       const ps = escala.filter((e) => e.data === amanha && e.turno === t.id);
