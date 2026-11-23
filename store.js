@@ -124,6 +124,27 @@ async function criarFirebase(config) {
     }),
     add: (col, d) => fs.addDoc(fs.collection(db, col), d).then((r) => r.id).catch((e) => { throw traduzir(e); }),
     remover: (col, id) => fs.deleteDoc(fs.doc(db, col, id)).catch((e) => { throw traduzir(e); }),
+
+    // Chave pessoal usada pela automação de presença (Atalhos / MacroDroid)
+    async chavePresenca() {
+      const ref = fs.doc(db, "chaves", uid);
+      const s = await fs.getDoc(ref);
+      if (s.exists() && s.data().token) return s.data().token;
+      const token = Array.from(crypto.getRandomValues(new Uint8Array(18)), (b) => b.toString(16).padStart(2, "0")).join("");
+      await fs.setDoc(ref, { token });
+      return token;
+    },
+
+    // Registra este celular para receber avisos (Firebase Cloud Messaging)
+    async ativarAvisos(vapidKey, nome) {
+      const m = await import(FB + "firebase-messaging.js");
+      if (!(await m.isSupported())) throw new Error("este navegador não aceita avisos");
+      const reg = await navigator.serviceWorker.ready;
+      const token = await m.getToken(m.getMessaging(app), { vapidKey, serviceWorkerRegistration: reg });
+      if (!token) throw new Error("o celular não gerou o registro de avisos");
+      await fs.setDoc(fs.doc(db, "aparelhos", uid), { nome, tokens: fs.arrayUnion(token), em: Date.now() }, { merge: true });
+      return token;
+    },
   };
   return store;
 }
