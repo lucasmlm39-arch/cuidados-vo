@@ -1,0 +1,8 @@
+{
+  "name": "vigia-cuidados",
+  "private": true,
+  "description": "Envia os avisos do app Cuidados da Vó (roda no GitHub Actions)",
+  "dependencies": {
+    "firebase-admin": "12.7.0"
+  }
+}
