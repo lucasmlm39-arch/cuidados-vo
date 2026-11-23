@@ -33,6 +33,7 @@ const S = {
   diaEscala: hoje(),
   diaRem: hoje(),
   escala: [], remedios: [], doses: [], recados: [],
+  presenca: [], membros: [], chave: null,
 };
 let store, perfil;
 
@@ -58,6 +59,10 @@ function ligar() {
   store.watch("remedios", null, (d) => { S.remedios = d.sort((a, b) => a.nome.localeCompare(b.nome)); render(); });
   store.watch("doses", desde, (d) => { S.doses = d; render(); });
   store.watch("recados", somaDias(hoje(), -30), (d) => { S.recados = d.sort((a, b) => b.em - a.em); render(); });
+  if (!store.demo) {
+    store.watch("presenca", null, (d) => { S.presenca = d; render(); });
+    store.watch("membros", null, (d) => { S.membros = d; render(); });
+  }
   render();
   setInterval(render, 60_000); // atualiza "atrasado", turno atual etc.
   document.addEventListener("visibilitychange", () => { if (!document.hidden) render(); });
@@ -148,6 +153,7 @@ function cardTurno(t, data, rotulo = "") {
     ${ps.map((p) => `
       <div class="pessoa">
         <div class="pessoa-info"><b>${esc(p.nome)}</b> <span class="horas">${p.inicio} às ${p.fim}</span>
+          ${data === turnoAtual().data && t === turnoAtual().t ? seloPresenca(p.nome) : ""}
           ${p.obs ? `<div class="obs">${esc(p.obs)}</div>` : ""}</div>
         <button class="btn-icone" data-acao="editarEscala" data-id="${p.id}" aria-label="Editar">✏️</button>
       </div>`).join("")}
@@ -435,8 +441,10 @@ function vHoje() {
   const pend = sl.filter(({ r, h: hr }) => !doseDe(h, r, hr));
   const sos = ativos(h).filter((r) => r.tipo === "sos");
   return `
+    ${!store.demo && !avisosAtivos() ? `<button class="btn secundario largo faixa-avisos" data-acao="aba" data-aba="presenca">🔔 Ativar avisos de remédio neste celular</button>` : ""}
     <h2 class="secao">Com a ${esc(VO)} agora</h2>
     ${cardTurno(at.t, at.data, `Agora · ${at.t.nome}`)}
+    ${cardPresenca()}
     <h2 class="secao">Próximo turno</h2>
     ${cardTurno(px.t, px.data, `${px.data !== h ? rotuloDia(px.data) + " · " : ""}${px.t.nome}`)}
     <h2 class="secao">Remédios de hoje ${sl.length ? `<span class="contador">${sl.length - pend.length} de ${sl.length} dados</span>` : ""}</h2>
@@ -447,6 +455,158 @@ function vHoje() {
     <h2 class="secao">Recados recentes</h2>
     ${S.recados.slice(0, 3).map(cardRecado).join("") || `<p class="vazio">Nenhum recado ainda.</p>`}
     <button class="btn secundario largo" data-acao="novoRecado">+ Deixar recado</button>`;
+}
+
+// ---------------- Presença e avisos ----------------
+const ms = (t) => (t?.toMillis ? t.toMillis() : t || 0);
+const normNome = (s) => String(s || "").normalize("NFD").replace(/[̀-ͯ]/g, "").trim().toLowerCase();
+const ehIphone = () => /iphone|ipad|ipod/i.test(navigator.userAgent);
+const avisosAtivos = () =>
+  typeof Notification !== "undefined" && Notification.permission === "granted" && lsGet("vo-avisos") === "1";
+
+function presencas() {
+  const nomes = Object.fromEntries(S.membros.map((m) => [m.id, m.nome]));
+  return S.presenca
+    .map((p) => ({ uid: p.id, nome: nomes[p.id] || "?", estado: p.estado, chegou: ms(p.chegouEm), saiu: ms(p.saiuEm) }))
+    .filter((p) => p.nome !== "?");
+}
+const presentes = () => presencas().filter((p) => p.estado === "chegou").sort((a, b) => a.chegou - b.chegou);
+
+function seloPresenca(nome) {
+  const p = presentes().find((x) => normNome(x.nome) === normNome(nome));
+  if (p) return `<span class="selo s-ok">📍 lá desde ${hm(new Date(p.chegou).getHours() * 60 + new Date(p.chegou).getMinutes())}</span>`;
+  const configurou = presencas().some((x) => normNome(x.nome) === normNome(nome));
+  return configurou ? `<span class="selo s-parcial">ainda não chegou</span>` : "";
+}
+
+function cardPresenca(sempre = false) {
+  if (!S.presenca.length && !sempre) return "";
+  const ps = presentes();
+  const saidas = presencas()
+    .filter((p) => p.estado === "saiu" && Date.now() - p.saiu < 8 * 3600e3)
+    .sort((a, b) => b.saiu - a.saiu);
+  return `<section class="card presenca">
+    <div class="turno-topo"><b>📍 Na casa da ${esc(VO)} agora</b></div>
+    ${ps.length
+      ? ps.map((p) => `<div class="pessoa"><div class="pessoa-info"><b>${esc(p.nome)}</b> <span class="horas">chegou ${quando(p.chegou)}</span>
+          ${Date.now() - p.chegou > 16 * 3600e3 ? `<div class="obs">⚠️ sem registro de saída — confira</div>` : ""}</div></div>`).join("")
+      : S.presenca.length ? `<p class="alerta">Ninguém com presença automática está lá agora.</p>` : ""}
+    ${saidas.length ? `<p class="cinza pequeno">Saíram: ${saidas.map((p) => `${esc(p.nome)} ${quando(p.saiu)}`).join(" · ")}</p>` : ""}
+    ${S.presenca.length ? "" : `<p class="cinza pequeno">Ninguém configurou a presença automática ainda.</p>`}
+  </section>`;
+}
+
+const urlPresenca = () =>
+  `https://firestore.googleapis.com/v1/projects/${CFG.firebase.projectId}/databases/(default)/documents:commit?key=${CFG.firebase.apiKey}`;
+function corpoPresenca(estado) {
+  return JSON.stringify({
+    writes: [{
+      update: {
+        name: `projects/${CFG.firebase.projectId}/databases/(default)/documents/presenca/${perfil.uid}`,
+        fields: { token: { stringValue: S.chave }, estado: { stringValue: estado } },
+      },
+      updateMask: { fieldPaths: ["token", "estado"] },
+      updateTransforms: [{ fieldPath: estado === "chegou" ? "chegouEm" : "saiuEm", setToServerValue: "REQUEST_TIME" }],
+    }],
+  });
+}
+
+const blocoCopiar = (id, titulo, texto) => `
+  <div class="copiar">
+    <div class="copiar-topo"><b>${titulo}</b><button class="btn secundario" data-acao="copiar" data-alvo="${id}">Copiar</button></div>
+    <pre id="${id}" class="dado">${esc(texto)}</pre>
+  </div>`;
+
+function blocoDados() {
+  return `
+    <p class="cinza pequeno">Estes dados são só seus — não mande para outras pessoas. Cada um pega os seus no próprio celular.</p>
+    ${blocoCopiar("d-url", "1. Endereço (URL)", urlPresenca())}
+    ${blocoCopiar("d-chegada", "2. Texto da CHEGADA", corpoPresenca("chegou"))}
+    ${blocoCopiar("d-saida", "3. Texto da SAÍDA", corpoPresenca("saiu"))}
+    <div class="linha2">
+      <button class="btn" data-acao="testarPresenca" data-estado="chegou">Testar chegada</button>
+      <button class="btn" data-acao="testarPresenca" data-estado="saiu">Testar saída</button>
+    </div>`;
+}
+
+const passos = (lista) => `<ol class="passos">${lista.map((p) => `<li>${p}</li>`).join("")}</ol>`;
+
+function tutorialIphone() {
+  return `<details class="card tutorial" ${ehIphone() ? "open" : ""}>
+    <summary>📱 Como configurar no <b>iPhone</b></summary>
+    <p class="cinza pequeno">Use o app <b>Atalhos</b> (já vem no iPhone). Os nomes podem variar um pouco conforme a versão do iOS.</p>
+    <h3>Parte 1 — Quando CHEGAR</h3>
+    ${passos([
+      "Nesta tela, toque em <b>Mostrar meus dados da automação</b> (acima).",
+      "Abra o app <b>Atalhos</b> → aba <b>Automação</b> (embaixo) → botão <b>+</b>.",
+      `Escolha <b>Wi-Fi</b> → em <b>Rede</b>, selecione o <b>Wi-Fi da casa da ${esc(VO)}</b> (ele aparece se você já se conectou nele) → marque <b>Executar Imediatamente</b> → <b>Seguinte</b>.`,
+      "Toque em <b>Nova Automação em Branco</b>.",
+      "Toque em <b>Adicionar Ação</b>, procure por <b>Texto</b> e toque nele.",
+      "Volte aqui no app, toque em <b>Copiar</b> no item <b>2. Texto da CHEGADA</b>, volte ao Atalhos e cole dentro da caixa de texto.",
+      "Na busca de ações (embaixo), procure <b>Obter Conteúdo do URL</b> e toque nele.",
+      "Toque na palavra <b>URL</b> dentro da ação e cole o <b>1. Endereço</b> (copie aqui no app).",
+      "Toque na setinha <b>›</b> da ação (Mostrar Mais) e ajuste:<br>• <b>Método</b>: POST<br>• <b>Cabeçalhos</b> → Adicionar novo cabeçalho → Chave: <code>Content-Type</code> · Texto: <code>application/json</code><br>• <b>Corpo da Solicitação</b>: <b>Arquivo</b> → toque em Arquivo e escolha a variável <b>Texto</b>.",
+      "Toque em <b>OK</b>. Pronto! Para testar, toque no ▶︎ (canto de baixo) e veja se seu nome aparece em \"Na casa agora\".",
+    ])}
+    <h3>Parte 2 — Quando SAIR</h3>
+    ${passos([
+      "No Atalhos, crie outra automação (<b>+</b>).",
+      `Se ao escolher <b>Wi-Fi</b> aparecer a opção de executar ao <b>desconectar / sair</b> da rede, use-a com o Wi-Fi da ${esc(VO)}. Se não aparecer, escolha <b>Sair</b> (de um local) e marque o endereço da ${esc(VO)}.`,
+      "Marque <b>Executar Imediatamente</b> e siga os mesmos passos 4 a 10 da Parte 1, mas copiando o <b>3. Texto da SAÍDA</b>.",
+    ])}
+  </details>`;
+}
+
+function tutorialAndroid() {
+  return `<details class="card tutorial" ${ehIphone() ? "" : "open"}>
+    <summary>🤖 Como configurar no <b>Android</b></summary>
+    <p class="cinza pequeno">Use o app gratuito <b>MacroDroid</b>. Os nomes dos menus podem variar um pouco conforme a versão.</p>
+    <h3>Parte 1 — Quando CHEGAR</h3>
+    ${passos([
+      "Nesta tela, toque em <b>Mostrar meus dados da automação</b> (acima).",
+      `Instale o <b>MacroDroid</b> pela <a href="https://play.google.com/store/apps/details?id=com.arlosoft.macrodroid" target="_blank" rel="noopener">Play Store</a> e abra.`,
+      "Toque em <b>Adicionar Macro</b>.",
+      `Em <b>Gatilhos</b> toque <b>+</b> → <b>Conectividade</b> → <b>Estado do Wi-Fi</b> (ou \"Mudança de estado do Wi-Fi\") → <b>Conectado à rede</b> → escolha o <b>Wi-Fi da ${esc(VO)}</b> → OK. Se pedir permissão de <b>localização</b>, permita — o Android exige isso para ler o nome do Wi-Fi.`,
+      "Em <b>Ações</b> toque <b>+</b> → procure <b>Requisição HTTP</b> (HTTP Request).",
+      "Método: <b>POST</b>. Em <b>URL</b>, cole o <b>1. Endereço</b> (copie aqui no app).",
+      "Na parte de <b>Corpo / Conteúdo</b>: tipo <code>application/json</code> e cole o <b>2. Texto da CHEGADA</b>. Toque em OK.",
+      "Dê o nome <b>Cheguei na vó</b> e salve (✓). Para testar, use <b>Testar ações</b> no menu da macro.",
+    ])}
+    <h3>Parte 2 — Quando SAIR</h3>
+    ${passos([
+      "Crie outra macro igual, mas no gatilho escolha <b>Desconectado da rede</b>.",
+      "Na Requisição HTTP, cole o <b>3. Texto da SAÍDA</b>. Nome: <b>Saí da vó</b>.",
+    ])}
+    <h3>Importante</h3>
+    ${passos([
+      "Para o Android não fechar o MacroDroid: Configurações do celular → Apps → MacroDroid → Bateria → <b>Sem restrições</b>.",
+    ])}
+  </details>`;
+}
+
+function vPresenca() {
+  if (store.demo) return `<p class="vazio">A presença automática e os avisos funcionam só com o Firebase configurado.</p>`;
+  const eu = S.presenca.find((p) => p.id === perfil.uid);
+  const ok = avisosAtivos();
+  return `
+    ${cardPresenca(true)}
+    <h2 class="secao">🔔 Avisos no celular</h2>
+    <section class="card">
+      <p>Avisa quem está no turno na hora do remédio, quando um remédio não for marcado e quando faltar alguém na escala.</p>
+      ${ok ? `<p class="tudo-ok">✓ Avisos ativados neste celular</p>` : ""}
+      <button class="btn ${ok ? "secundario" : "primario"} largo" data-acao="ativarAvisos">${ok ? "Reativar avisos" : "Ativar avisos neste celular"}</button>
+      ${ehIphone() ? `<p class="cinza pequeno">No iPhone, só funciona abrindo o app pelo ícone da tela inicial.</p>` : ""}
+    </section>
+    <h2 class="secao">📶 Presença automática</h2>
+    <section class="card">
+      <p>Seu celular avisa sozinho quando você <b>chega</b> e <b>sai</b> da casa da ${esc(VO)}, usando o Wi-Fi do apartamento. É só configurar uma vez.</p>
+      <p>Sua situação: ${eu
+        ? eu.estado === "chegou" ? `<b>📍 lá desde ${quando(ms(eu.chegouEm))}</b>` : `saiu ${quando(ms(eu.saiuEm))}`
+        : "<b>ainda não configurado neste celular</b>"}</p>
+      ${S.chave ? blocoDados() : `<button class="btn primario largo" data-acao="mostrarDados">Mostrar meus dados da automação</button>`}
+    </section>
+    ${tutorialIphone()}
+    ${tutorialAndroid()}`;
 }
 
 // ---------------- Perfil ----------------
@@ -500,6 +660,41 @@ const ACOES = {
   novoRecado: () => modalRecado(),
   removerRecado: ({ id }) => { if (confirm("Apagar este recado?")) salvar(store.remover("recados", id), "Recado apagado"); },
   apagarDemo: () => { if (confirm("Apagar todos os dados de teste?")) { store.apagarTudo(); fecharModal(); toast("Dados apagados"); } },
+  mostrarDados: async () => {
+    try { S.chave = await store.chavePresenca(); render(); }
+    catch (e) { console.error(e); toast("Não foi possível carregar. Verifique a internet."); }
+  },
+  copiar: async ({ alvo }) => {
+    const texto = $("#" + alvo)?.textContent || "";
+    try { await navigator.clipboard.writeText(texto); toast("Copiado! Agora cole na automação."); }
+    catch {
+      const r = document.createRange(); r.selectNodeContents($("#" + alvo));
+      const s = getSelection(); s.removeAllRanges(); s.addRange(r);
+      toast("Texto selecionado — toque em Copiar no menu do celular.");
+    }
+  },
+  testarPresenca: async ({ estado }) => {
+    try {
+      const r = await fetch(urlPresenca(), { method: "POST", headers: { "Content-Type": "application/json" }, body: corpoPresenca(estado) });
+      if (!r.ok) throw new Error(r.status);
+      toast(estado === "chegou" ? "Funcionou! Você aparece como presente." : "Funcionou! Você aparece como saiu.");
+    } catch (e) { console.error(e); toast("O teste falhou. Verifique a internet."); }
+  },
+  ativarAvisos: async () => {
+    if (!CFG.vapidKey) return toast("Os avisos ainda não foram configurados (falta a chave no config.js).");
+    if (!("Notification" in window) || !("serviceWorker" in navigator)) {
+      return toast(ehIphone() ? "No iPhone, abra o app pelo ícone da tela inicial para ativar os avisos." : "Este navegador não aceita avisos.");
+    }
+    let perm = "denied";
+    try { perm = await Notification.requestPermission(); } catch {}
+    if (perm !== "granted") return toast("Permissão negada. Libere as notificações do app nas configurações do celular.");
+    try {
+      await store.ativarAvisos(CFG.vapidKey, perfil.nome);
+      lsSet("vo-avisos", "1");
+      render();
+      toast("Avisos ativados! Em até 15 minutos chega uma notificação de teste.");
+    } catch (e) { console.error(e); toast("Não foi possível ativar: " + (e.message || e)); }
+  },
 };
 
 document.addEventListener("click", (e) => {
@@ -511,7 +706,7 @@ document.addEventListener("click", (e) => {
 
 // ---------------- Render ----------------
 function shell() {
-  const abas = [["hoje", "🏠", "Hoje"], ["escala", "📅", "Escala"], ["remedios", "💊", "Remédios"], ["recados", "📝", "Recados"]];
+  const abas = [["hoje", "🏠", "Hoje"], ["escala", "📅", "Escala"], ["remedios", "💊", "Remédios"], ["recados", "📝", "Recados"], ["presenca", "📍", "Presença"]];
   return `
     <header class="topo">
       <div><div class="titulo">Cuidados da ${esc(VO)}</div><div class="sub" id="subtitulo"></div></div>
@@ -529,9 +724,14 @@ function render() {
   if (!$("#conteudo")) $("#app").innerHTML = shell();
   const tira = $("#tira");
   const scroll = tira ? tira.scrollLeft : null;
-  const views = { hoje: vHoje, escala: vEscala, remedios: vRemedios, recados: vRecados };
+  const views = { hoje: vHoje, escala: vEscala, remedios: vRemedios, recados: vRecados, presenca: vPresenca };
+  const abertos = [...document.querySelectorAll("details.tutorial")].map((d) => d.open);
+  const y = window.scrollY;
   $("#conteudo").innerHTML = (views[S.aba] || vHoje)();
   if (scroll !== null && $("#tira")) $("#tira").scrollLeft = scroll;
+  const det = document.querySelectorAll("details.tutorial");
+  if (abertos.length === det.length) det.forEach((d, i) => (d.open = abertos[i]));
+  window.scrollTo(0, y);
   document.querySelectorAll(".aba").forEach((b) => b.classList.toggle("ativa", b.dataset.aba === S.aba));
   $("#nomePerfil").textContent = perfil.nome;
   const d = new Date();
